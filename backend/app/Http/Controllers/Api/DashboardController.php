@@ -45,19 +45,27 @@ class DashboardController extends Controller
     {
         $today = now()->startOfDay();
         
-        $transactions = Transaction::where('outlet_id', $outletId)
-            ->where('status', 'completed')
-            ->whereDate('created_at', $today)
-            ->get();
+        $query = Transaction::where('status', 'completed')
+            ->whereDate('created_at', $today);
+        
+        if ($outletId) {
+            $query->where('outlet_id', $outletId);
+        }
+        
+        $transactions = $query->get();
 
         $totalRevenue = $transactions->sum('total');
         $totalTransactions = $transactions->count();
         $averageTransaction = $totalTransactions > 0 ? $totalRevenue / $totalTransactions : 0;
 
         // Cash in hand (today's cash only)
-        $cashInHand = CashFlow::where('outlet_id', $outletId)
-            ->whereDate('created_at', $today)
-            ->sum(DB::raw('CASE WHEN type = "in" THEN amount ELSE -amount END'));
+        $cashFlowQuery = CashFlow::whereDate('created_at', $today);
+        
+        if ($outletId) {
+            $cashFlowQuery->where('outlet_id', $outletId);
+        }
+        
+        $cashInHand = $cashFlowQuery->sum(DB::raw("CASE WHEN type = 'in' THEN amount ELSE -amount END"));
 
         return [
             'total_revenue' => $totalRevenue,
@@ -74,10 +82,14 @@ class DashboardController extends Controller
         for ($i = $days - 1; $i >= 0; $i--) {
             $date = now()->subDays($i)->startOfDay();
             
-            $total = Transaction::where('outlet_id', $outletId)
-                ->where('status', 'completed')
-                ->whereDate('created_at', $date)
-                ->sum('total');
+            $query = Transaction::where('status', 'completed')
+                ->whereDate('created_at', $date);
+            
+            if ($outletId) {
+                $query->where('outlet_id', $outletId);
+            }
+            
+            $total = $query->sum('total');
 
             $data[] = [
                 'date' => $date->format('Y-m-d'),
@@ -90,13 +102,17 @@ class DashboardController extends Controller
 
     private function getTopProducts($outletId, $dateFrom, $dateTo, $limit = 10)
     {
-        return DB::table('transaction_items')
+        $query = DB::table('transaction_items')
             ->join('transactions', 'transaction_items.transaction_id', '=', 'transactions.id')
             ->join('products', 'transaction_items.product_id', '=', 'products.id')
-            ->where('transactions.outlet_id', $outletId)
             ->where('transactions.status', 'completed')
-            ->whereBetween('transactions.created_at', [$dateFrom, $dateTo])
-            ->select(
+            ->whereBetween('transactions.created_at', [$dateFrom, $dateTo]);
+        
+        if ($outletId) {
+            $query->where('transactions.outlet_id', $outletId);
+        }
+        
+        return $query->select(
                 'products.id',
                 'products.name',
                 DB::raw('SUM(transaction_items.quantity) as total_quantity'),
@@ -110,10 +126,14 @@ class DashboardController extends Controller
 
     private function getPaymentBreakdown($outletId, $dateFrom, $dateTo)
     {
-        return Transaction::where('outlet_id', $outletId)
-            ->where('status', 'completed')
-            ->whereBetween('created_at', [$dateFrom, $dateTo])
-            ->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(total) as total'))
+        $query = Transaction::where('status', 'completed')
+            ->whereBetween('created_at', [$dateFrom, $dateTo]);
+        
+        if ($outletId) {
+            $query->where('outlet_id', $outletId);
+        }
+        
+        return $query->select('payment_method', DB::raw('COUNT(*) as count'), DB::raw('SUM(total) as total'))
             ->groupBy('payment_method')
             ->get();
     }
@@ -137,21 +157,26 @@ class DashboardController extends Controller
             'group_by' => 'nullable|in:day,week,month',
         ]);
 
-        $outletId = $validated['outlet_id'] ?? auth()->user()->outlet_id;
+        $user = auth()->user();
+        $outletId = $validated['outlet_id'] ?? $user->outlet_id;
         $groupBy = $validated['group_by'] ?? 'day';
 
-        $query = Transaction::where('outlet_id', $outletId)
-            ->where('status', 'completed')
+        $query = Transaction::where('status', 'completed')
             ->whereBetween('created_at', [$validated['date_from'], $validated['date_to']]);
+        
+        // Only filter by outlet if user has specific outlet or outlet_id provided
+        if ($outletId) {
+            $query->where('outlet_id', $outletId);
+        }
 
         $dateFormat = match($groupBy) {
-            'day' => '%Y-%m-%d',
-            'week' => '%Y-%u',
-            'month' => '%Y-%m',
+            'day' => 'YYYY-MM-DD',
+            'week' => 'YYYY-WW',
+            'month' => 'YYYY-MM',
         };
 
         $report = $query->select(
-            DB::raw("DATE_FORMAT(created_at, '{$dateFormat}') as period"),
+            DB::raw("TO_CHAR(created_at, '{$dateFormat}') as period"),
             DB::raw('COUNT(*) as transaction_count'),
             DB::raw('SUM(total) as total_revenue'),
             DB::raw('SUM(discount) as total_discount'),

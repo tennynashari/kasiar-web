@@ -5,13 +5,6 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
-import { useAuthStore } from '@/stores/auth'
-
-const authStore = useAuthStore()
-
-onMounted(() => {
-  // Initialize auth state from localStorage
-  authStore.initAuth()
-})
+// Auth initialization is now handled by router guard
+// No need to initialize here
 </script>

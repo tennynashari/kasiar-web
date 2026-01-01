@@ -32,14 +32,29 @@ class AuthController extends Controller
             ]);
         }
 
+        // Create token for Sanctum
         $token = $user->createToken('pos-token')->plainTextToken;
 
         ActivityLog::log('login', $user);
 
-        return response()->json([
+        // Create response with user data
+        $response = response()->json([
             'user' => $user->load('outlet'),
-            'token' => $token,
+            'message' => 'Login successful',
         ]);
+
+        // Attach HTTP-only cookie to response
+        return $response->cookie(
+            'auth_token',
+            $token,
+            config('sanctum.expiration') ?? 60 * 24 * 7, // 7 days in minutes
+            '/',
+            null, // domain
+            false, // secure - set to true in production with HTTPS
+            true, // httpOnly
+            false, // raw
+            'lax' // sameSite
+        );
     }
 
     public function logout(Request $request)
@@ -47,6 +62,9 @@ class AuthController extends Controller
         ActivityLog::log('logout', $request->user());
         
         $request->user()->currentAccessToken()->delete();
+
+        // Clear the auth token cookie
+        cookie()->queue(cookie()->forget('auth_token'));
 
         return response()->json(['message' => 'Logged out successfully']);
     }

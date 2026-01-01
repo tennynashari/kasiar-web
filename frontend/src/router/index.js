@@ -59,21 +59,43 @@ const router = createRouter({
   ]
 })
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
   
-  // Allow public routes
-  if (to.meta.public) {
-    next()
-  } else if (to.meta.requiresAuth && !authStore.token) {
-    next('/login')
-  } else if (to.meta.guest && authStore.token) {
-    next('/')
-  } else if (to.meta.roles && !to.meta.roles.includes(authStore.user?.role)) {
-    next('/')
-  } else {
-    next()
+  // Initialize auth on first navigation only
+  if (!authStore.initialized && !authStore.loading) {
+    await authStore.initAuth()
   }
+  
+  const isAuthenticated = !!authStore.user
+  const isPublicRoute = to.meta.public === true
+  const isGuestRoute = to.meta.guest === true
+  const requiresAuth = to.meta.requiresAuth === true
+  
+  // Public routes - always allow
+  if (isPublicRoute) {
+    return next()
+  }
+  
+  // Guest routes (login) - redirect to home if already authenticated
+  if (isGuestRoute && isAuthenticated) {
+    return next('/')
+  }
+  
+  // Protected routes - redirect to login if not authenticated
+  if (requiresAuth && !isAuthenticated) {
+    return next('/login')
+  }
+  
+  // Role check for protected routes
+  if (requiresAuth && to.meta.roles) {
+    if (!to.meta.roles.includes(authStore.user?.role)) {
+      return next('/')
+    }
+  }
+  
+  // Allow navigation
+  next()
 })
 
 export default router

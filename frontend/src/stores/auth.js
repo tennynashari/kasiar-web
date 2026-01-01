@@ -4,16 +4,24 @@ import api from '@/services/api'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
-  const token = ref(null)
   const loading = ref(false)
+  const initialized = ref(false)
 
-  const initAuth = () => {
-    const savedToken = localStorage.getItem('token')
-    const savedUser = localStorage.getItem('user')
+  // Initialize by checking if user is authenticated via cookie
+  const initAuth = async () => {
+    if (initialized.value || loading.value) return
     
-    if (savedToken && savedUser) {
-      token.value = savedToken
-      user.value = JSON.parse(savedUser)
+    loading.value = true
+    try {
+      // Try to get current user from API (cookie will be sent automatically)
+      const response = await api.get('/me')
+      user.value = response.data
+    } catch (error) {
+      // Not authenticated or session expired
+      user.value = null
+    } finally {
+      loading.value = false
+      initialized.value = true
     }
   }
 
@@ -21,13 +29,8 @@ export const useAuthStore = defineStore('auth', () => {
     loading.value = true
     try {
       const response = await api.post('/login', { email, password })
-      
-      token.value = response.data.token
       user.value = response.data.user
-      
-      localStorage.setItem('token', response.data.token)
-      localStorage.setItem('user', JSON.stringify(response.data.user))
-      
+      initialized.value = true
       return true
     } catch (error) {
       throw error
@@ -42,10 +45,8 @@ export const useAuthStore = defineStore('auth', () => {
     } catch (error) {
       console.error('Logout error:', error)
     } finally {
-      token.value = null
       user.value = null
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
+      initialized.value = false
     }
   }
 
@@ -56,8 +57,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user,
-    token,
     loading,
+    initialized,
     initAuth,
     login,
     logout,
